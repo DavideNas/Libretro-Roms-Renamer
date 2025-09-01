@@ -59,8 +59,11 @@ def rename_roms(roms_path, console_name):
 
         base, ext = os.path.splitext(filename)
 
+        # Replace underscores with spaces for better matching
+        base_clean = base.replace("_", " ")
+
         # Find matches
-        candidates = [name for name in official_names if base.lower() in name.lower()]
+        candidates = [name for name in official_names if base_clean.lower() in name.lower()]
         if not candidates:
             print(f"[WARN] No match found for {filename}")
             log_lines.append(f"[NOT FOUND] {filename}")

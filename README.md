@@ -174,3 +174,35 @@ y
 
 ✅ File renamed successfully!
 
+---
+
+## 🔤 Filename Normalization
+
+The script automatically treats underscores `_` as spaces.
+This means both of the following will be recognized as the same ROM during matching:
+
+* `Super_Mario_Bros_Deluxe`
+* `Super Mario Bros Deluxe`
+
+👉 This improves matching accuracy with Libretro’s official boxart names.
+
+---
+
+Perfetto, ecco la sezione **Changelog** pronta da aggiungere alla fine del README:
+
+---
+
+## 🆕 Changelog
+
+**v1.0 – Initial release**
+
+* ✅ Added exact match auto-renaming
+* 🔎 Added candidate suggestions for non-matching ROMs
+* 👤 Interactive decisions: accept (`y`), skip (`n`), next (`r`), back (`b`), deletable (`d`)
+* 🔄 Added `_` → space normalization for better matching
+* 📝 Logging only for modified or missing files (`roms_log.txt`)
+* 🌐 Supports multiple console categories: Atari, Microsoft, Nintendo, Cabinet, Sega, Sony
+* ⚡ Windows & Linux compatible
+
+---
+
