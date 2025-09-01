@@ -1,8 +1,28 @@
 import os
 import re
+import sys
 import requests
 from bs4 import BeautifulSoup
 import urllib.parse
+
+# --- funzione per leggere un singolo tasto (cross-platform) ---
+def get_single_key() -> str:
+    try:
+        # Windows
+        import msvcrt
+        return msvcrt.getch().decode("utf-8").lower()
+    except ImportError:
+        # Linux/macOS
+        import tty
+        import termios
+        fd = sys.stdin.fileno()
+        old_settings = termios.tcgetattr(fd)
+        try:
+            tty.setraw(fd)
+            ch = sys.stdin.read(1).lower()
+        finally:
+            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
+        return ch
 
 # --- Dizionario categorie e console ---
 CATEGORIES = {
@@ -36,25 +56,35 @@ CATEGORIES = {
     ]),
 }
 
-# --- Selezione categoria ---
-print("Quale categoria di console ti interessa? (1-6) :")
+# --- Selezione categoria aggiornata ---
+print("Quale categoria di console ti interessa? (1-7) :")
 for key, (cat_name, _) in CATEGORIES.items():
     print(f"({key}) {cat_name}")
+print("(7) Other - Manual Insert")  # nuova voce
+
 cat_choice = input("Inserisci il numero della categoria: ").strip()
-while cat_choice not in CATEGORIES:
+while cat_choice not in list(CATEGORIES.keys()) + ["7"]:
     cat_choice = input("Scelta non valida. Inserisci il numero della categoria: ").strip()
 
-category_name, consoles = CATEGORIES[cat_choice]
+if cat_choice == "7":
+    # inserimento manuale
+    SYSTEM = input("Enter the name of your console from libretro.com: ").strip()
+    if not SYSTEM:
+        print("Console name not found !")
+        sys.exit(1)
+    category_name = "Other"
+    consoles = [SYSTEM]  # serve solo per la logica successiva
+else:
+    category_name, consoles = CATEGORIES[cat_choice]
 
-# --- Selezione console ---
-print(f"\nQuale console {category_name} vuoi analizzare ? (1-{len(consoles)}) :")
-for i, console in enumerate(consoles, start=1):
-    print(f"({i}) {console}")
-console_choice = input("Inserisci il numero della console: ").strip()
-while not console_choice.isdigit() or not (1 <= int(console_choice) <= len(consoles)):
-    console_choice = input("Scelta non valida. Inserisci il numero della console: ").strip()
-
-SYSTEM = consoles[int(console_choice) - 1]
+    # --- Selezione console ---
+    print(f"\nQuale console {category_name} vuoi analizzare ? (1-{len(consoles)}) :")
+    for i, console in enumerate(consoles, start=1):
+        print(f"({i}) {console}")
+    console_choice = input("Inserisci il numero della console: ").strip()
+    while not console_choice.isdigit() or not (1 <= int(console_choice) <= len(consoles)):
+        console_choice = input("Scelta non valida. Inserisci il numero della console: ").strip()
+    SYSTEM = consoles[int(console_choice) - 1]
 
 # --- Cartella ROMs ---
 LOCAL_ROM_PATH = input(f"\nDove sono le tue roms per {SYSTEM}? (inserisci il percorso su disco) : ").strip()
@@ -77,7 +107,7 @@ for link in soup.find_all("a"):
 
 print(f"[INFO] Trovati {len(remote_names)} nomi ufficiali dal sito\n")
 
-# --- funzione pulizia titolo aggiornata ---
+# --- funzione pulizia titolo ---
 def clean_title(name: str) -> str:
     """Rimuove contenuto tra () e [] e spazi extra, sostituisce '_' con spazio"""
     name = name.replace("_", " ")
@@ -91,8 +121,8 @@ def normalize(name: str) -> str:
     return name.lower().strip()
 
 # --- confronto rom locali ---
-any_changes_needed = False  # flag per verificare se ci sono file da rinominare
-log_entries = []  # log solo per modificati o non trovati
+any_changes_needed = False
+log_entries = []
 
 for filename in os.listdir(LOCAL_ROM_PATH):
     name, ext = os.path.splitext(filename)
@@ -107,7 +137,7 @@ for filename in os.listdir(LOCAL_ROM_PATH):
             print(f"[AUTO] Match esatto → Rinomina: {filename} -> {new_name}")
             any_changes_needed = True
             log_entries.append(f"{filename} → {new_name}")
-        continue  # match esatto senza modifiche non va in log
+        continue
 
     # --- ricerca avanzata permissiva ---
     clean_local = normalize(name)
@@ -131,7 +161,10 @@ for filename in os.listdir(LOCAL_ROM_PATH):
         old_path = os.path.join(LOCAL_ROM_PATH, filename)
         new_path = os.path.join(LOCAL_ROM_PATH, new_name)
 
-        answer = input(f"{filename} → {new_name} [{idx+1}/{len(candidates)}] - (y/n/r/b/d): ").strip().lower()
+        # --- input singolo tasto ---
+        print(f"{filename} → {new_name} [{idx+1}/{len(candidates)}] - (y/n/r/b/d): ", end="", flush=True)
+        answer = get_single_key()
+        print(answer)  # mostra il tasto premuto
 
         if answer == "y":
             if os.path.exists(new_path):
@@ -157,7 +190,7 @@ for filename in os.listdir(LOCAL_ROM_PATH):
             log_entries.append(f"{filename} → {new_name_d}")
             break
         else:
-            print("[INFO] Comando non valido, riprova con y/n/r/b/d.")
+            print("[INFO] Comando non valido, premi y/n/r/b/d.")
 
 # --- messaggio finale ---
 if not any_changes_needed:
