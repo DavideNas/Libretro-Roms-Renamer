@@ -1,132 +1,172 @@
 import os
-import sys
+import re
 import requests
 from bs4 import BeautifulSoup
+import urllib.parse
 
-# ---------------------------
-# Cross-platform key reader
-# ---------------------------
-def get_key():
-    try:
-        # --- Windows ---
-        import msvcrt
-        return msvcrt.getch().decode("utf-8").lower()
-    except ImportError:
-        # --- Linux / macOS ---
-        import tty, termios
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        try:
-            tty.setraw(fd)
-            ch = sys.stdin.read(1).lower()
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        return ch
+# --- Dizionario categorie e console ---
+CATEGORIES = {
+    "1": ("Atari", [
+        "Atari - 8-bit", "Atari - 2600", "Atari - 5200", "Atari - 7800",
+        "Atari - Jaguar", "Atari - Lynx", "Atari - ST"
+    ]),
+    "2": ("Microsoft", [
+        "DOS", "Microsoft - MSX", "Microsoft - MSX2", "Microsoft - Xbox", "Microsoft - Xbox 360"
+    ]),
+    "3": ("Nintendo", [
+        "Nintendo - Family Computer Disk System", "Nintendo - Game Boy", "Nintendo - Game Boy Advance",
+        "Nintendo - Game Boy Color", "Nintendo - GameCube", "Nintendo - Nintendo 3DS", "Nintendo - Nintendo 64",
+        "Nintendo - Nintendo 64DD", "Nintendo - Nintendo DS", "Nintendo - Nintendo DSi",
+        "Nintendo - Nintendo Entertainment System", "Nintendo - Pokemon Mini", "Nintendo - Satellaview",
+        "Nintendo - Sufami Turbo", "Nintendo - Super Nintendo Entertainment System", "Nintendo - Virtual Boy",
+        "Nintendo - Wii", "Nintendo - Wii U"
+    ]),
+    "4": ("Cabinet", [
+        "Atomiswave", "FBNeo - Arcade Games", "MAME", "SNK - Neo Geo", "SNK - Neo Geo CD",
+        "SNK - Neo Geo Pocket", "SNK - Neo Geo Pocket Color"
+    ]),
+    "5": ("Sega", [
+        "Sega - 32X", "Sega - Dreamcast", "Sega - Game Gear", "Sega - Master System - Mark III",
+        "Sega - Mega-CD - Sega CD", "Sega - Mega Drive - Genesis", "Sega - Naomi", "Sega - Naomi 2",
+        "Sega - SG-1000", "Sega - Saturn"
+    ]),
+    "6": ("Sony", [
+        "Sony - PlayStation", "Sony - PlayStation 2", "Sony - PlayStation 3", "Sony - PlayStation 4",
+        "Sony - PlayStation Portable", "Sony - PlayStation Vita"
+    ]),
+}
 
+# --- Selezione categoria ---
+print("Quale categoria di console ti interessa? (1-6) :")
+for key, (cat_name, _) in CATEGORIES.items():
+    print(f"({key}) {cat_name}")
+cat_choice = input("Inserisci il numero della categoria: ").strip()
+while cat_choice not in CATEGORIES:
+    cat_choice = input("Scelta non valida. Inserisci il numero della categoria: ").strip()
 
-# ---------------------------
-# Download official names from libretro
-# ---------------------------
-def fetch_official_names(console_name):
-    url = f"https://thumbnails.libretro.com/{console_name}/Named_Boxarts/"
-    print(f"[INFO] Downloading official roms list for {console_name}...")
-    response = requests.get(url)
-    if response.status_code != 200:
-        print(f"[ERROR] Unable to fetch list from {url}")
-        return []
+category_name, consoles = CATEGORIES[cat_choice]
 
-    soup = BeautifulSoup(response.text, "html.parser")
-    names = [a["href"] for a in soup.find_all("a", href=True) if a["href"].endswith(".png")]
-    names = [os.path.splitext(name)[0] for name in names]
-    print(f"[INFO] Found {len(names)} official rom names")
-    return names
+# --- Selezione console ---
+print(f"\nQuale console {category_name} vuoi analizzare ? (1-{len(consoles)}) :")
+for i, console in enumerate(consoles, start=1):
+    print(f"({i}) {console}")
+console_choice = input("Inserisci il numero della console: ").strip()
+while not console_choice.isdigit() or not (1 <= int(console_choice) <= len(consoles)):
+    console_choice = input("Scelta non valida. Inserisci il numero della console: ").strip()
 
+SYSTEM = consoles[int(console_choice) - 1]
 
-# ---------------------------
-# Main renamer function
-# ---------------------------
-def rename_roms(roms_path, console_name):
-    official_names = fetch_official_names(console_name)
-    if not official_names:
-        return
+# --- Cartella ROMs ---
+LOCAL_ROM_PATH = input(f"\nDove sono le tue roms per {SYSTEM}? (inserisci il percorso su disco) : ").strip()
+while not os.path.isdir(LOCAL_ROM_PATH):
+    LOCAL_ROM_PATH = input("Percorso non valido. Inserisci una cartella esistente: ").strip()
 
-    log_lines = []
-    any_changes_needed = False
+REMOTE_URL = f"https://thumbnails.libretro.com/{SYSTEM}/Named_Boxarts/"
 
-    for filename in os.listdir(roms_path):
-        if not os.path.isfile(os.path.join(roms_path, filename)):
-            continue
+# --- scarica lista nomi dal sito ---
+print(f"\n[INFO] Scarico lista rom ufficiali per {SYSTEM}...")
+resp = requests.get(REMOTE_URL)
+soup = BeautifulSoup(resp.text, "html.parser")
 
-        base, ext = os.path.splitext(filename)
+remote_names = []
+for link in soup.find_all("a"):
+    href = link.get("href")
+    if href.endswith(".png"):
+        rom_name = urllib.parse.unquote(href.replace(".png", ""))
+        remote_names.append(rom_name)
 
-        # Replace underscores with spaces for better matching
-        base_clean = base.replace("_", " ")
+print(f"[INFO] Trovati {len(remote_names)} nomi ufficiali dal sito\n")
 
-        # Find matches
-        candidates = [name for name in official_names if base_clean.lower() in name.lower()]
-        if not candidates:
-            print(f"[WARN] No match found for {filename}")
-            log_lines.append(f"[NOT FOUND] {filename}")
+# --- funzione pulizia titolo aggiornata ---
+def clean_title(name: str) -> str:
+    """Rimuove contenuto tra () e [] e spazi extra, sostituisce '_' con spazio"""
+    name = name.replace("_", " ")
+    return re.sub(r"(\(.*?\)|\[.*?\])", "", name).strip()
+
+# --- normalizzazione per confronto ---
+def normalize(name: str) -> str:
+    """Rimuove (), [], underscore e spazi extra, tutto minuscolo"""
+    name = name.replace("_", " ")
+    name = re.sub(r"(\(.*?\)|\[.*?\])", "", name)
+    return name.lower().strip()
+
+# --- confronto rom locali ---
+any_changes_needed = False  # flag per verificare se ci sono file da rinominare
+log_entries = []  # log solo per modificati o non trovati
+
+for filename in os.listdir(LOCAL_ROM_PATH):
+    name, ext = os.path.splitext(filename)
+
+    # --- match esatto ---
+    if name in remote_names:
+        new_name = name + ext
+        old_path = os.path.join(LOCAL_ROM_PATH, filename)
+        new_path = os.path.join(LOCAL_ROM_PATH, new_name)
+        if old_path != new_path:
+            os.rename(old_path, new_path)
+            print(f"[AUTO] Match esatto → Rinomina: {filename} -> {new_name}")
             any_changes_needed = True
-            continue
+            log_entries.append(f"{filename} → {new_name}")
+        continue  # match esatto senza modifiche non va in log
 
-        for idx, new_name in enumerate(candidates):
-            new_filename = f"{new_name}{ext}"
-            old_path = os.path.join(roms_path, filename)
-            new_path = os.path.join(roms_path, new_filename)
+    # --- ricerca avanzata permissiva ---
+    clean_local = normalize(name)
+    candidates = []
+    for r in remote_names:
+        clean_remote = normalize(r)
+        remote_words = clean_remote.split()
+        if all(word in clean_local for word in remote_words):
+            candidates.append(r)
 
-            print(f"{filename} → {new_filename} [{idx+1}/{len(candidates)}] - (y/n/r/b/d): ", end="", flush=True)
-            answer = get_key()
-            print(answer)  # echo del tasto premuto
+    if not candidates:
+        print(f"[WARN] Nessuna corrispondenza trovata per {filename}")
+        log_entries.append(f"{filename} → Nessuna corrispondenza")
+        any_changes_needed = True
+        continue
 
-            if answer == "y":
-                if os.path.exists(new_path):
-                    print(f"[ERROR] {new_filename} already exists! Skipped.")
-                    log_lines.append(f"[SKIPPED EXISTS] {filename} → {new_filename}")
-                else:
-                    os.rename(old_path, new_path)
-                    print(f"[OK] Renamed {filename} → {new_filename}")
-                    log_lines.append(f"[RENAMED] {filename} → {new_filename}")
-                any_changes_needed = True
-                break
-            elif answer == "d":
-                deletable_filename = f"deletable_{filename}"
-                deletable_path = os.path.join(roms_path, deletable_filename)
-                os.rename(old_path, deletable_path)
-                print(f"[OK] Marked as deletable: {filename} → {deletable_filename}")
-                log_lines.append(f"[DELETABLE] {filename} → {deletable_filename}")
-                any_changes_needed = True
-                break
-            elif answer == "n":
-                print(f"[SKIP] Kept {filename}")
-                break
-            elif answer == "r":
-                continue  # try next candidate
-            elif answer == "b":
-                print("[BACK] Returning to previous file...")
-                break
+    any_changes_needed = True
+    idx = 0
+    while True:
+        new_name = candidates[idx] + ext
+        old_path = os.path.join(LOCAL_ROM_PATH, filename)
+        new_path = os.path.join(LOCAL_ROM_PATH, new_name)
+
+        answer = input(f"{filename} → {new_name} [{idx+1}/{len(candidates)}] - (y/n/r/b/d): ").strip().lower()
+
+        if answer == "y":
+            if os.path.exists(new_path):
+                print(f"[WARN] File {new_name} già esistente! Usa 'd' per aggiungere '_deletable_'")
             else:
-                print("[INVALID] Skipped")
-                break
+                os.rename(old_path, new_path)
+                print(f"[OK] Rinomina completata: {filename} -> {new_name}")
+            log_entries.append(f"{filename} → {new_name}")
+            break
+        elif answer == "n":
+            print(f"[SKIP] Lasciato invariato: {filename}")
+            log_entries.append(f"{filename} → Lasciato invariato")
+            break
+        elif answer == "r":
+            idx = (idx + 1) % len(candidates)
+        elif answer == "b":
+            idx = (idx - 1) % len(candidates)
+        elif answer == "d":
+            new_name_d = "_deletable_" + new_name
+            new_path_d = os.path.join(LOCAL_ROM_PATH, new_name_d)
+            os.rename(old_path, new_path_d)
+            print(f"[OK] Rinomina con '_deletable_' completata: {filename} -> {new_name_d}")
+            log_entries.append(f"{filename} → {new_name_d}")
+            break
+        else:
+            print("[INFO] Comando non valido, riprova con y/n/r/b/d.")
 
-    # Summary
-    if not any_changes_needed:
-        print(f"✅ All files for {console_name} are already correctly named!")
-    else:
-        log_file = os.path.join(roms_path, "renamer_log.txt")
-        with open(log_file, "w", encoding="utf-8") as f:
-            f.write("\n".join(log_lines))
-        print(f"[INFO] Log written to {log_file}")
+# --- messaggio finale ---
+if not any_changes_needed:
+    print(f"\nTutti i file per {SYSTEM} hanno già i nomi corretti!")
 
-
-# ---------------------------
-# Example usage
-# ---------------------------
-if __name__ == "__main__":
-    console_name = input("Enter console name (as on libretro site, e.g. 'Nintendo - Game Boy'): ")
-    roms_path = input(f"Where are your roms for {console_name}? (folder path): ")
-
-    if os.path.isdir(roms_path):
-        rename_roms(roms_path, console_name)
-    else:
-        print(f"[ERROR] Path not found: {roms_path}")
+# --- crea log file solo per modifiche o mancanti ---
+if log_entries:
+    log_file = os.path.join(LOCAL_ROM_PATH, "roms_log.txt")
+    with open(log_file, "w", encoding="utf-8") as f:
+        for entry in log_entries:
+            f.write(entry + "\n")
+    print(f"\n[INFO] Log creato (solo modifiche/mancanti): {log_file}")

@@ -86,7 +86,10 @@ python roms_renamer.py
    (4) Cabinet
    (5) Sega
    (6) Sony
+   (7) Manual Insert
    ```
+
+   *Option 7 allows you to manually type the console name in case it’s not listed in the categories.*
 
 2. **Pick a Console**
    Example (Nintendo):
@@ -96,7 +99,10 @@ python roms_renamer.py
    (2) Nintendo - Game Boy Advance
    (3) Nintendo - Super Nintendo Entertainment System
    ...
+   (n+1) Enter console manually
    ```
+
+   *You can also manually type any console name even if it’s not in the predefined list.*
 
 3. **Select ROM Folder**
    Example prompt:
@@ -106,7 +112,7 @@ python roms_renamer.py
    ```
 
 4. **Official Name Fetch**
-   Script downloads official names from:
+   The script downloads official names from:
 
    ```
    https://thumbnails.libretro.com/<CONSOLE>/Named_Boxarts/
@@ -130,6 +136,8 @@ python roms_renamer.py
 | `b`     | 🔼 Show **previous candidate**       |
 | `d`     | 🗑️ Rename but prepend `_deletable_` |
 
+> ⚡ On Windows & Linux, you can press the key **directly** without hitting ENTER.
+
 ---
 
 ## 📝 Logging
@@ -143,6 +151,18 @@ It records only:
 * ❌ Files not found in the official list
 
 ⚡ Files already matching the official name are not logged (to keep the log clean).
+
+---
+
+## 🔤 Filename Normalization
+
+The script automatically treats underscores `_` as spaces.
+This means both of the following will be recognized as the same ROM during matching:
+
+* `Super_Mario_Bros_Deluxe`
+* `Super Mario Bros Deluxe`
+
+👉 This improves matching accuracy with Libretro’s official boxart names.
 
 ---
 
@@ -176,25 +196,9 @@ y
 
 ---
 
-## 🔤 Filename Normalization
-
-The script automatically treats underscores `_` as spaces.
-This means both of the following will be recognized as the same ROM during matching:
-
-* `Super_Mario_Bros_Deluxe`
-* `Super Mario Bros Deluxe`
-
-👉 This improves matching accuracy with Libretro’s official boxart names.
-
----
-
-Perfetto, ecco la sezione **Changelog** pronta da aggiungere alla fine del README:
-
----
-
 ## 🆕 Changelog
 
-**v1.0 – Initial release**
+**v1.1 – Updated release**
 
 * ✅ Added exact match auto-renaming
 * 🔎 Added candidate suggestions for non-matching ROMs
@@ -202,7 +206,7 @@ Perfetto, ecco la sezione **Changelog** pronta da aggiungere alla fine del READM
 * 🔄 Added `_` → space normalization for better matching
 * 📝 Logging only for modified or missing files (`roms_log.txt`)
 * 🌐 Supports multiple console categories: Atari, Microsoft, Nintendo, Cabinet, Sega, Sony
+* ✏️ Added **Manual Insert** option for custom console names
 * ⚡ Windows & Linux compatible
-
----
+* 🎯 Keypress commands work without pressing ENTER
 
