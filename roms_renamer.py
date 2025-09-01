@@ -8,11 +8,9 @@ import urllib.parse
 # --- funzione per leggere un singolo tasto (cross-platform) ---
 def get_single_key() -> str:
     try:
-        # Windows
         import msvcrt
         return msvcrt.getch().decode("utf-8").lower()
     except ImportError:
-        # Linux/macOS
         import tty
         import termios
         fd = sys.stdin.fileno()
@@ -73,7 +71,7 @@ if cat_choice == "7":
         print("Console name not found !")
         sys.exit(1)
     category_name = "Other"
-    consoles = [SYSTEM]  # serve solo per la logica successiva
+    consoles = [SYSTEM]
 else:
     category_name, consoles = CATEGORIES[cat_choice]
 
@@ -107,20 +105,17 @@ for link in soup.find_all("a"):
 
 print(f"[INFO] Trovati {len(remote_names)} nomi ufficiali dal sito\n")
 
-# --- funzione pulizia titolo ---
-def clean_title(name: str) -> str:
-    """Rimuove contenuto tra () e [] e spazi extra, sostituisce '_' con spazio"""
+# --- normalizzazione parole ---
+def normalize_words(name: str):
+    """Rimuove underscore, minuscola, parentesi, virgole, trattini e divide in parole"""
     name = name.replace("_", " ")
-    return re.sub(r"(\(.*?\)|\[.*?\])", "", name).strip()
+    name = re.sub(r"[(),\-]", " ", name)
+    name = re.sub(r"\s+", " ", name)
+    name = re.sub(r"\[.*?\]", "", name)
+    name = re.sub(r"\(.*?\)", "", name)
+    return [w.lower() for w in name.split() if w.strip()]
 
-# --- normalizzazione per confronto ---
-def normalize(name: str) -> str:
-    """Rimuove (), [], underscore e spazi extra, tutto minuscolo"""
-    name = name.replace("_", " ")
-    name = re.sub(r"(\(.*?\)|\[.*?\])", "", name)
-    return name.lower().strip()
-
-# --- confronto rom locali ---
+# --- confronto rom locali con match permissivo ---
 any_changes_needed = False
 log_entries = []
 
@@ -140,12 +135,15 @@ for filename in os.listdir(LOCAL_ROM_PATH):
         continue
 
     # --- ricerca avanzata permissiva ---
-    clean_local = normalize(name)
+    local_words = normalize_words(name)
     candidates = []
     for r in remote_names:
-        clean_remote = normalize(r)
-        remote_words = clean_remote.split()
-        if all(word in clean_local for word in remote_words):
+        remote_words = normalize_words(r)
+        if not remote_words:
+            continue
+        # match se almeno 70% delle parole della boxart sono presenti nel nome locale
+        match_count = sum(1 for w in remote_words if w in local_words)
+        if match_count / len(remote_words) >= 0.7:
             candidates.append(r)
 
     if not candidates:
@@ -161,10 +159,9 @@ for filename in os.listdir(LOCAL_ROM_PATH):
         old_path = os.path.join(LOCAL_ROM_PATH, filename)
         new_path = os.path.join(LOCAL_ROM_PATH, new_name)
 
-        # --- input singolo tasto ---
         print(f"{filename} → {new_name} [{idx+1}/{len(candidates)}] - (y/n/r/b/d): ", end="", flush=True)
         answer = get_single_key()
-        print(answer)  # mostra il tasto premuto
+        print(answer)
 
         if answer == "y":
             if os.path.exists(new_path):
