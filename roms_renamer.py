@@ -4,8 +4,9 @@ import sys
 import requests
 from bs4 import BeautifulSoup
 import urllib.parse
+import difflib
 
-# --- funzione per leggere un singolo tasto (cross-platform) ---
+# --- function to read a single key (cross-platform) ---
 def get_single_key() -> str:
     try:
         import msvcrt
@@ -22,7 +23,7 @@ def get_single_key() -> str:
             termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
         return ch
 
-# --- Dizionario categorie e console ---
+# --- Category Dictionary and Console ---
 CATEGORIES = {
     "1": ("Atari", [
         "Atari - 8-bit", "Atari - 2600", "Atari - 5200", "Atari - 7800",
@@ -54,18 +55,17 @@ CATEGORIES = {
     ]),
 }
 
-# --- Selezione categoria aggiornata ---
-print("Quale categoria di console ti interessa? (1-7) :")
+# --- Category selection ---
+print("Which console category are you interested in? (1-7) :")
 for key, (cat_name, _) in CATEGORIES.items():
     print(f"({key}) {cat_name}")
-print("(7) Other - Manual Insert")  # nuova voce
+print("(7) Other - Manual Insert")
 
-cat_choice = input("Inserisci il numero della categoria: ").strip()
+cat_choice = input("Enter the category number: ").strip()
 while cat_choice not in list(CATEGORIES.keys()) + ["7"]:
-    cat_choice = input("Scelta non valida. Inserisci il numero della categoria: ").strip()
+    cat_choice = input("Invalid selection. Please enter the category number: ").strip()
 
 if cat_choice == "7":
-    # inserimento manuale
     SYSTEM = input("Enter the name of your console from libretro.com: ").strip()
     if not SYSTEM:
         print("Console name not found !")
@@ -74,25 +74,23 @@ if cat_choice == "7":
     consoles = [SYSTEM]
 else:
     category_name, consoles = CATEGORIES[cat_choice]
-
-    # --- Selezione console ---
-    print(f"\nQuale console {category_name} vuoi analizzare ? (1-{len(consoles)}) :")
+    print(f"\nWhich console {category_name} do you want to analyze? (1-{len(consoles)}) :")
     for i, console in enumerate(consoles, start=1):
         print(f"({i}) {console}")
-    console_choice = input("Inserisci il numero della console: ").strip()
+    console_choice = input("Enter the console number: ").strip()
     while not console_choice.isdigit() or not (1 <= int(console_choice) <= len(consoles)):
-        console_choice = input("Scelta non valida. Inserisci il numero della console: ").strip()
+        console_choice = input("Invalid selection. Please enter your console number: ").strip()
     SYSTEM = consoles[int(console_choice) - 1]
 
-# --- Cartella ROMs ---
-LOCAL_ROM_PATH = input(f"\nDove sono le tue roms per {SYSTEM}? (inserisci il percorso su disco) : ").strip()
+# --- ROMs Folder ---
+LOCAL_ROM_PATH = input(f"\nWhere are your roms for {SYSTEM}? (enter the path on disk) : ").strip()
 while not os.path.isdir(LOCAL_ROM_PATH):
-    LOCAL_ROM_PATH = input("Percorso non valido. Inserisci una cartella esistente: ").strip()
+    LOCAL_ROM_PATH = input("Invalid path. Please enter an existing folder: ").strip()
 
 REMOTE_URL = f"https://thumbnails.libretro.com/{SYSTEM}/Named_Boxarts/"
 
-# --- scarica lista nomi dal sito ---
-print(f"\n[INFO] Scarico lista rom ufficiali per {SYSTEM}...")
+# --- download list of names from the site ---
+print(f"\n[INFO] Download official rom list for {SYSTEM}...")
 resp = requests.get(REMOTE_URL)
 soup = BeautifulSoup(resp.text, "html.parser")
 
@@ -103,52 +101,69 @@ for link in soup.find_all("a"):
         rom_name = urllib.parse.unquote(href.replace(".png", ""))
         remote_names.append(rom_name)
 
-print(f"[INFO] Trovati {len(remote_names)} nomi ufficiali dal sito\n")
+print(f"[INFO] Found {len(remote_names)} official names from the site\n")
 
-# --- normalizzazione parole ---
+# --- normalize words in title ---
+STOPWORDS = set(["the","for","and","of","your","a","an","in","on","per","di","da","del","della","dei","le","la","un","uno","una"])
+
 def normalize_words(name: str):
-    """Rimuove underscore, minuscola, parentesi, virgole, trattini e divide in parole"""
+    """Removes punctuation, underscores, lowercase letters, parentheses, commas, hyphens, and splits words"""
     name = name.replace("_", " ")
-    name = re.sub(r"[(),\-]", " ", name)
+    name = re.sub(r"[!\"#$%&'()*+,./:;<=>?@\[\\\]^_`{|}~-]", " ", name)
     name = re.sub(r"\s+", " ", name)
     name = re.sub(r"\[.*?\]", "", name)
     name = re.sub(r"\(.*?\)", "", name)
-    return [w.lower() for w in name.split() if w.strip()]
+    return [w.lower() for w in name.split() if w.strip() and w.lower() not in STOPWORDS]
 
-# --- confronto rom locali con match permissivo ---
+# --- fuzzy similarity ---
+def is_word_similar(a: str, b: str, threshold: float = 0.8) -> bool:
+    return difflib.SequenceMatcher(None, a.lower(), b.lower()).ratio() >= threshold
+
+# --- comparison of local ROMs with fuzzy permissive match ---
 any_changes_needed = False
 log_entries = []
 
 for filename in os.listdir(LOCAL_ROM_PATH):
     name, ext = os.path.splitext(filename)
+    local_words = normalize_words(name)
 
-    # --- match esatto ---
+    # --- exact match ---
     if name in remote_names:
         new_name = name + ext
         old_path = os.path.join(LOCAL_ROM_PATH, filename)
         new_path = os.path.join(LOCAL_ROM_PATH, new_name)
         if old_path != new_path:
             os.rename(old_path, new_path)
-            print(f"[AUTO] Match esatto → Rinomina: {filename} -> {new_name}")
-            any_changes_needed = True
+            print(f"[AUTO] Exact Match → Rename: {filename} -> {new_name}")
             log_entries.append(f"{filename} → {new_name}")
         continue
 
-    # --- ricerca avanzata permissiva ---
-    local_words = normalize_words(name)
+    # --- permissive advanced search ---
     candidates = []
     for r in remote_names:
         remote_words = normalize_words(r)
         if not remote_words:
             continue
-        # match se almeno 70% delle parole della boxart sono presenti nel nome locale
-        match_count = sum(1 for w in remote_words if w in local_words)
+        match_count = sum(1 for rw in remote_words if any(is_word_similar(rw, lw) for lw in local_words))
         if match_count / len(remote_words) >= 0.7:
-            candidates.append(r)
+            candidates.append((r, match_count))
+
+    # --- fallback: word-by-word search if no candidates ---
+    if not candidates:
+        word_candidates = []
+        for r in remote_names:
+            remote_words = normalize_words(r)
+            single_matches = sum(1 for rw in remote_words if any(is_word_similar(rw, lw) for lw in local_words))
+            if single_matches > 0:
+                similarity = difflib.SequenceMatcher(None, name.lower(), r.lower()).ratio()
+                word_candidates.append((r, single_matches, similarity))
+        # sort by number of matched words desc, then similarity desc
+        word_candidates.sort(key=lambda x: (-x[1], -x[2]))
+        candidates = [wc[0] for wc in word_candidates[:10]]  # limit to top 10
 
     if not candidates:
-        print(f"[WARN] Nessuna corrispondenza trovata per {filename}")
-        log_entries.append(f"{filename} → Nessuna corrispondenza")
+        print(f"[WARN] No matches found for {filename}")
+        log_entries.append(f"{filename} → No match")
         any_changes_needed = True
         continue
 
@@ -165,15 +180,15 @@ for filename in os.listdir(LOCAL_ROM_PATH):
 
         if answer == "y":
             if os.path.exists(new_path):
-                print(f"[WARN] File {new_name} già esistente! Usa 'd' per aggiungere '_deletable_'")
+                print(f"[WARN] File {new_name} already exists! Use 'd' to append '_deletable_'")
             else:
                 os.rename(old_path, new_path)
-                print(f"[OK] Rinomina completata: {filename} -> {new_name}")
-            log_entries.append(f"{filename} → {new_name}")
-            break
+                print(f"[OK] Rename completed: {filename} -> {new_name}")
+                log_entries.append(f"{filename} → {new_name}")
+                break
         elif answer == "n":
-            print(f"[SKIP] Lasciato invariato: {filename}")
-            log_entries.append(f"{filename} → Lasciato invariato")
+            print(f"[SKIP] Left unchanged: {filename}")
+            log_entries.append(f"{filename} → Left unchanged")
             break
         elif answer == "r":
             idx = (idx + 1) % len(candidates)
@@ -181,22 +196,4 @@ for filename in os.listdir(LOCAL_ROM_PATH):
             idx = (idx - 1) % len(candidates)
         elif answer == "d":
             new_name_d = "_deletable_" + new_name
-            new_path_d = os.path.join(LOCAL_ROM_PATH, new_name_d)
-            os.rename(old_path, new_path_d)
-            print(f"[OK] Rinomina con '_deletable_' completata: {filename} -> {new_name_d}")
-            log_entries.append(f"{filename} → {new_name_d}")
-            break
-        else:
-            print("[INFO] Comando non valido, premi y/n/r/b/d.")
-
-# --- messaggio finale ---
-if not any_changes_needed:
-    print(f"\nTutti i file per {SYSTEM} hanno già i nomi corretti!")
-
-# --- crea log file solo per modifiche o mancanti ---
-if log_entries:
-    log_file = os.path.join(LOCAL_ROM_PATH, "roms_log.txt")
-    with open(log_file, "w", encoding="utf-8") as f:
-        for entry in log_entries:
-            f.write(entry + "\n")
-    print(f"\n[INFO] Log creato (solo modifiche/mancanti): {log_file}")
+            new_path_d = os.path.join
